@@ -41,11 +41,13 @@ experiment = "792564_fnca"
 username = importUsername
 password = importPassword
 
-restRoot = "https://intradb.humanconnectome.org"
-restExperimentURL = restRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
+restServerName = "intradb.humanconnectome.org"
+restInsecureRoot = "http://" + restServerName + ":8080"
+restSecureRoot = "https://" + restServerName
+restExperimentURL = restInsecureRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
 # Establish a Session ID
-r = requests.get( restRoot + "/data/JSESSION", auth=(username, password) )
+r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
 # Check if the REST Request fails
 if r.status_code != 200 :
     print "Failed to retrieve REST Session ID"
@@ -150,7 +152,6 @@ else:
 excludeList = ["Localizer", "AAHScout"]
 searchRegex = re.compile( '|'.join(excludeList) )
 
-
 # Iterate over the list of Series objects
 for item in seriesList:
     # if the Instance Name does not match anything from the exclude list...
@@ -166,7 +167,7 @@ for item in seriesList:
 
 # Print the final filtered list
 for item in seriesList:
-    #print item.seriesNum, item.seriesDesc, item.seriesQualityText, item.seriesQualityNumeric, item.niftiCount, item.seriesDate
-    #print "Series %s, %s, Instance %s, Instance Name: %s, %s, %s" % (item.seriesNum, item.seriesDesc, item.instanceNum, item.instanceName, item.seriesQualityText, item.seriesDate.ctime() )
-    print "Series %s, Instance Name: %s, Instance Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
+    #print "Series %s, %s, Instance %s, Instance Name: %s, %s, %s, Included: %s" % \
+    #      (item.seriesNum, item.seriesDesc, item.instanceNum, item.instanceName, item.seriesQualityText, item.seriesDate.ctime(), item.instanceIncluded )
+    print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
 
