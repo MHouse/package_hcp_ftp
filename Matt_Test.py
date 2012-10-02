@@ -5,6 +5,7 @@ import requests
 import re
 import urllib2
 import shutil
+import os
 from datetime import datetime
 from lxml import etree
 from sys import exit
@@ -42,6 +43,8 @@ subject = "792564"
 experiment = "792564_fnca"
 username = importUsername
 password = importPassword
+
+destDir = os.path.normpath( "/Users/mhouse01/NIFTI_temp" )
 
 restServerName = "intradb.humanconnectome.org"
 restInsecureRoot = "http://" + restServerName + ":8080"
@@ -156,15 +159,10 @@ searchRegex = re.compile( '|'.join(excludeList) )
 
 # Iterate over the list of Series objects
 for item in seriesList:
-    # if the Instance Name does not match anything from the exclude list...
-    if not re.match( searchRegex, item.instanceName ):
-        # And if the Scan Quality value is greater than 3
-        if item.seriesQualityNumeric > 3:
-            # Include this item in the final list
-            item.instanceIncluded = True
-        else:
-            # Exclude this item from the final list
-            item.instanceIncluded = False
+    # if the scan quality is a 3 or greater and if the Instance Name does not match anything from the exclude list
+    if item.seriesQualityNumeric >= 3 and not re.search( searchRegex, item.instanceName ):
+        # Include the item in the final list
+        item.instanceIncluded = True
     else:
         # Exclude this item from the final list
         item.instanceIncluded = False
@@ -175,15 +173,20 @@ for item in seriesList:
     #      (item.seriesNum, item.seriesDesc, item.instanceNum, item.instanceName, item.seriesQualityText, item.seriesDate.ctime(), item.instanceIncluded )
     print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
     if item.instanceIncluded == True:
-        # Check to see if there are multiple NIFTI files
-        #if item.niftiCount > 1:
-        # Get the primary NIFTI file
+        # Get the primary NIFTI file for the series.  Assumes filename based on Series Description
         niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files/" + \
                    experiment + "_" + item.seriesDesc + ".nii.gz"
+        # Create a Request object associated with the URL
         niftiRequest = urllib2.Request( niftiURL )
+        # Add the Session Header to the Request
         niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
-        remote_fo = urllib2.urlopen( niftiRequest )
-        local_working_dir = "/Users/mhouse01/NIFTI_temp"
-        local_filename = experiment + "_" + item.instanceName + ".nii.gz"
-        with open( local_working_dir + "/" + local_filename, 'wb') as local_fo:
-            shutil.copyfileobj( remote_fo, local_fo )
+        # Generate a fully qualified local filename to dump the data into
+        local_filename = destDir + "/" + experiment + "_" + item.instanceName + ".nii.gz"
+        try:
+            # Open a socket to the URL and get a file-like object handle
+            remote_fo = urllib2.urlopen( niftiRequest )
+            # Write the URL contents out to a file and make sure it gets closed
+            with open( local_filename, 'wb') as local_fo:
+                shutil.copyfileobj( remote_fo, local_fo )
+        except urllib2.URLError, e:
+            print e.args
