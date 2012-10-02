@@ -8,7 +8,6 @@ from lxml import etree
 from sys import exit
 from operator import attrgetter
 from Matt_PW import importUsername, importPassword
-# Trash Comment
 
 # Declare the XNAT Namespace for use in XML parsing
 xnatNS = "{http://nrg.wustl.edu/xnat}"
