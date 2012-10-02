@@ -3,6 +3,8 @@ __author__ = 'mhouse01'
 
 import requests
 import re
+import urllib2
+import shutil
 from datetime import datetime
 from lxml import etree
 from sys import exit
@@ -161,8 +163,10 @@ for item in seriesList:
             # Include this item in the final list
             item.instanceIncluded = True
         else:
+            # Exclude this item from the final list
             item.instanceIncluded = False
     else:
+        # Exclude this item from the final list
         item.instanceIncluded = False
 
 # Print the final filtered list
@@ -170,4 +174,16 @@ for item in seriesList:
     #print "Series %s, %s, Instance %s, Instance Name: %s, %s, %s, Included: %s" % \
     #      (item.seriesNum, item.seriesDesc, item.instanceNum, item.instanceName, item.seriesQualityText, item.seriesDate.ctime(), item.instanceIncluded )
     print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
-
+    if item.instanceIncluded == True:
+        # Check to see if there are multiple NIFTI files
+        #if item.niftiCount > 1:
+        # Get the primary NIFTI file
+        niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files/" + \
+                   experiment + "_" + item.seriesDesc + ".nii.gz"
+        niftiRequest = urllib2.Request( niftiURL )
+        niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
+        remote_fo = urllib2.urlopen( niftiRequest )
+        local_working_dir = "/Users/mhouse01/NIFTI_temp"
+        local_filename = experiment + "_" + item.instanceName + ".nii.gz"
+        with open( local_working_dir + "/" + local_filename, 'wb') as local_fo:
+            shutil.copyfileobj( remote_fo, local_fo )
