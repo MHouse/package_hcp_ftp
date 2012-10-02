@@ -167,6 +167,14 @@ for item in seriesList:
         # Exclude this item from the final list
         item.instanceIncluded = False
 
+# Make sure that the destination folder exists
+if not os.path.exists( destDir ):
+    os.makedirs(destDir)
+# Make a session specific folder
+sessionFolder = destDir + os.sep + experiment
+if not os.path.exists( sessionFolder ):
+    os.makedirs( sessionFolder )
+
 # Print the final filtered list
 for item in seriesList:
     #print "Series %s, %s, Instance %s, Instance Name: %s, %s, %s, Included: %s" % \
@@ -181,7 +189,7 @@ for item in seriesList:
         # Add the Session Header to the Request
         niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
         # Generate a fully qualified local filename to dump the data into
-        local_filename = destDir + "/" + experiment + "_" + item.instanceName + ".nii.gz"
+        local_filename = destDir + os.sep + experiment + os.sep + experiment + "_" + item.instanceName + ".nii.gz"
         try:
             # Open a socket to the URL and get a file-like object handle
             remote_fo = urllib2.urlopen( niftiRequest )
