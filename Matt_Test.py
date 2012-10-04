@@ -112,7 +112,6 @@ seriesList.sort( key=attrgetter('seriesDesc', 'seriesDate') )
 if len(seriesList) > 0:
     # The first one is always unique
     seriesList[0].instanceNum = 1
-    seriesList[0].instanceName = seriesList[0].seriesDesc
     seriesList[0].isUnique = True
 # Make sure that the list has additional elements
 if len(seriesList) > 1:
