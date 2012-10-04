@@ -4,6 +4,7 @@ __author__ = 'mhouse01'
 import requests
 import re
 import urllib2
+import json
 import shutil
 import os
 from datetime import datetime
@@ -24,32 +25,35 @@ class seriesDetails:
         self.seriesDesc = None
         self.niftiCount = None
         self.seriesDate = None
+        self.isUnique = None
         self.instanceNum = None
         self.instanceName = None
         self.instanceIncluded = None
+        self.fileList = None
     def __repr__(self):
         return "<seriesDetails seriesNum:%s seriesQualityText:%s seriesQualityNumeric:%s seriesDesc:%s niftiCount:%s seriesDate:%s>" \
                % (self.seriesNum, self.seriesQualityText, self.seriesQualityNumeric, self.seriesDesc, self.niftiCount, self.seriesDate)
 
 def QualityTextToNumeric(QualityText):
     """Convert 'quality' string to numeric score"""
-    qualityDict = dict(unknown=-1, unusable=0, poor=1, fair=2, good=3, excellent=4, usable=5)
+    qualityDict = dict(unusable=0, poor=1, fair=2, good=3, excellent=4, usable=5, undetermined=6)
     QualityNumeric = qualityDict.get( QualityText, -1)
     return int( QualityNumeric )
 
 # TODO Declaring REST Request Parameters manually here for now
 project = "HCP_Phase2"
 subject = "792564"
-experiment = "792564_fnca"
+experiment = "792564_diff"
 username = importUsername
 password = importPassword
 
 destDir = os.path.normpath( "/Users/mhouse01/NIFTI_temp" )
 
+jsonFormat ={'format': 'json'}
 restServerName = "intradb.humanconnectome.org"
 restInsecureRoot = "http://" + restServerName + ":8080"
 restSecureRoot = "https://" + restServerName
-restExperimentURL = restInsecureRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
+restExperimentURL = restSecureRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
 # Establish a Session ID
 r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
@@ -108,6 +112,7 @@ if len(seriesList) > 0:
     # The first one is always unique
     seriesList[0].instanceNum = 1
     seriesList[0].instanceName = seriesList[0].seriesDesc
+    seriesList[0].isUnique = True
 # Make sure that the list has additional elements
 if len(seriesList) > 1:
     # Start with the second item in the list
@@ -118,33 +123,37 @@ if len(seriesList) > 1:
         if previousSeries.seriesDesc != currentSeries.seriesDesc:
             # This is unique because it's not the same as the previous one
             currentSeries.instanceNum = 1
-            currentSeries.instanceName = currentSeries.seriesDesc
+            #currentSeries.instanceName = currentSeries.seriesDesc
+            currentSeries.isUnique = True
         else:
-            # This is not unique.  Increment it's instance number
+            # This is not unique
+            currentSeries.isUnique = False
+            # Neither is the previous one
+            previousSeries.isUnique = False
+            # Increment the current instance number
             currentSeries.instanceNum = previousSeries.instanceNum + 1
-            # And derive it's instance name
-            currentSeries.instanceName = currentSeries.seriesDesc + "_" + str( currentSeries.instanceNum )
-            # If this is the second instance, then go back and label the first one
-            if currentSeries.instanceNum == 2:
-                previousSeries.instanceName = previousSeries.seriesDesc + "_" + str( previousSeries.instanceNum )
 
 # Re-sort by Series Number
 seriesList.sort( key=attrgetter('seriesNum') )
 
-# Number Single Special Cases
+# Tag Single Special Cases
 specialCases = ["FieldMap_Magnitude", "FieldMap_Phase", "BOLD_RL_SB_SE", "BOLD_LR_SB_SE"]
-# We're going to store the instance names for later use
-instanceNames = list()
 # Iterate over the list of Series objects
 for item in seriesList:
-    # If the current Instance Name matches one of our special cases
-    if specialCases.count(item.instanceName) > 0:
-        # Append the instance name with "_1"
-        item.instanceName += "_1"
-    # Add the modified instance name to the general list
-    instanceNames.append(item.instanceName)
+    # If the current Series Description matches one of our special cases
+    if item.seriesDesc in specialCases:
+        # Tag it as not unique
+        item.isUnique = False
+
+# Set the Instance Names
+for item in seriesList:
+    if item.isUnique:
+        item.instanceName = item.seriesDesc
+    else:
+        item.instanceName = item.seriesDesc + "_" + str(item.instanceNum)
 
 # Sanity Check. Verify that all Instance Names are unique
+instanceNames = [item.instanceName for item in seriesList]
 # Compare the number of Series to the number of unique Instance Names
 if len(seriesList) == len( set(instanceNames) ):
     print "Instance names verified as unique"
@@ -152,9 +161,9 @@ else:
     print "Instance names not unique."
     exit(1)
 
-# Create the Final filtered list
-# Remove specified scan types from list
+# Create the filtered list; Remove specified scan types from list
 excludeList = ["Localizer", "AAHScout"]
+# Create a regular expression search object
 searchRegex = re.compile( '|'.join(excludeList) )
 
 # Iterate over the list of Series objects
@@ -167,6 +176,37 @@ for item in seriesList:
         # Exclude this item from the final list
         item.instanceIncluded = False
 
+# Create a tuple of the included resource types
+IncludedTypes = ('.nii.gz', '.bvec', '.bval')
+# Get the actual list of file names and URLs for each series
+for item in seriesList:
+    # If the Series is included, get it's file list
+    if item.instanceIncluded:
+        # Create a URL pointing to the NIFTI resources for the series
+        niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files"
+        # Get the list of NIFTI resources for the series in JSON format
+        r = requests.get( niftiURL, params=jsonFormat, headers=restSessionHeader)
+        # Parse the JSON from the GET
+        seriesJSON = json.loads( r.content )
+        # Strip off the trash that comes back with it and store it as a list of name/value pairs
+        fileResults = seriesJSON.get('ResultSet').get('Result')
+        # List Comprehensions Rock!  http://docs.python.org/tutorial/datastructures.html
+        # Filter the File List to only include items where the URI ends with one of the defined file types
+        fileResultsFiltered = [ fileItem for fileItem in fileResults
+                                if fileItem.get('URI').endswith( IncludedTypes )]
+        # Let us know what was found and how many matched
+        print "Series %s, %s file(s) found; %s file(s) matching criteria" %\
+              ( item.seriesNum, len( fileResults ), len( fileResultsFiltered ) )
+        # Create a stripped down version of the results with a new field for FileName; Store it in the Series object
+        item.fileList = [ dict( zip( ('OriginalName', 'FileName', 'URI', 'Size'),
+            (result.get('Name'), None, result.get('URI'), result.get('Size')) ) )
+                          for result in fileResultsFiltered ]
+        # Iterate across the individual files entries
+        for fileItem in item.fileList:
+            # Substitute the Instance Name in for the Series Description in File Names
+            fileItem['FileName'] = re.sub(item.seriesDesc, item.instanceName, fileItem.get('OriginalName'))
+            #print fileItem['FileName'], fileItem['URI']
+
 # Make sure that the destination folder exists
 if not os.path.exists( destDir ):
     os.makedirs(destDir)
@@ -175,26 +215,82 @@ sessionFolder = destDir + os.sep + experiment
 if not os.path.exists( sessionFolder ):
     os.makedirs( sessionFolder )
 
-# Print the final filtered list
+# Download the final filtered list
 for item in seriesList:
-    #print "Series %s, %s, Instance %s, Instance Name: %s, %s, %s, Included: %s" % \
-    #      (item.seriesNum, item.seriesDesc, item.instanceNum, item.instanceName, item.seriesQualityText, item.seriesDate.ctime(), item.instanceIncluded )
     print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
-    if item.instanceIncluded == True:
-        # Get the primary NIFTI file for the series.  Assumes filename based on Series Description
-        niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files/" + \
-                   experiment + "_" + item.seriesDesc + ".nii.gz"
-        # Create a Request object associated with the URL
-        niftiRequest = urllib2.Request( niftiURL )
-        # Add the Session Header to the Request
-        niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
-        # Generate a fully qualified local filename to dump the data into
-        local_filename = destDir + os.sep + experiment + os.sep + experiment + "_" + item.instanceName + ".nii.gz"
-        try:
-            # Open a socket to the URL and get a file-like object handle
-            remote_fo = urllib2.urlopen( niftiRequest )
-            # Write the URL contents out to a file and make sure it gets closed
-            with open( local_filename, 'wb') as local_fo:
-                shutil.copyfileobj( remote_fo, local_fo )
-        except urllib2.URLError, e:
-            print e.args
+    if item.instanceIncluded:
+        for fileItem in item.fileList:
+            # Get the primary NIFTI file for the series.  Assumes filename based on Series Description
+            #niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files/" + \
+            #           experiment + "_" + item.seriesDesc + ".nii.gz"
+            niftiURL = fileItem.get('URI')
+            # Create a Request object associated with the URL
+            niftiRequest = urllib2.Request( niftiURL )
+            # Add the Session Header to the Request
+            niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
+            # Generate a fully qualified local filename to dump the data into
+            local_filename = destDir + os.sep + experiment + os.sep + fileItem.get('FileName')
+            print local_filename
+            try:
+                # Open a socket to the URL and get a file-like object handle
+                remote_fo = urllib2.urlopen( niftiRequest )
+                # Write the URL contents out to a file and make sure it gets closed
+                with open( local_filename, 'wb') as local_fo:
+                    shutil.copyfileobj( remote_fo, local_fo )
+            except urllib2.URLError, e:
+                print e.args
+
+
+
+#
+## List Comprehensions Rock!
+#includedList = [ str(item.seriesNum) for item in seriesList if item.instanceIncluded ]
+#includedStr = ','.join(includedList)
+##print includedStr
+#
+#seriesURL = restExperimentURL + "/scans/" + includedStr + "/resources/NIFTI/files"
+##print seriesURL
+#r = requests.get( seriesURL, params=jsonFormat, headers=restSessionHeader)
+#seriesJSON = json.loads( r.content )
+#fileResults = seriesJSON.get('ResultSet').get('Result')
+#print "%s files found" % len( fileResults )
+## List Comprehensions Rock!
+## http://docs.python.org/tutorial/datastructures.html
+#fileResultsFiltered = [ fileItem for fileItem in fileResults if fileItem.get('URI').endswith(".nii.gz")]
+#print "%s files found matching criteria" % len( fileResultsFiltered )
+#for item in fileResultsFiltered:
+#    #print item
+#    #print item.get('Name'), item.get('URI')
+#    #print re.sub('\.nii.gz$', '', item.get('Name'))
+#    print dict( zip( ('Name', 'URI', 'Size'), (item.get('Name'), item.get('URI'), item.get('Size')) ) )
+##for fileItem in fileResults:
+##    fileURI = fileItem.get('URI')
+##    if fileURI.endswith(".nii.gz"):
+##        print fileURI
+
+# Pathing to find stuff in XNAT
+# For lists, can append: ?format=json
+# jsonFormat ={'format': 'json'}
+# Projects:
+#   https://intradb.humanconnectome.org/data/archive/projects
+# Subjects:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects
+# MR Sessions:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/?xsiType=xnat:mrSessionData
+# Scans:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/792564_fnca/scans
+# Scan XML:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/792564_fnca/scans/1
+# Resources:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/792564_fnca/scans/1/resources
+# Resource XML:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/792564_fnca/scans/1/resources/NIFTI
+# Resource File List:
+#   https://intradb.humanconnectome.org/data/archive/projects/HCP_Phase2/subjects/792564/experiments/792564_fnca/scans/1/resources/NIFTI/files
+#
+# URL Request Parameters
+# payload = {'key1': 'value1', 'key2': 'value2'}
+# r = requests.get("http://httpbin.org/get", params=payload)
+# print r.url
+# u'http://httpbin.org/get?key2=value2&key1=value1'
+
