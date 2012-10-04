@@ -204,13 +204,12 @@ for item in seriesList:
               ( item.seriesNum, len( fileResults ), len( fileResultsFiltered ) )
         # Create a stripped down version of the results with a new field for FileName; Store it in the Series object
         item.fileList = [ dict( zip( ('OriginalName', 'FileName', 'URI', 'Size'),
-            (result.get('Name'), None, result.get('URI'), long( result.get('Size') ) ) ) )
-                          for result in fileResultsFiltered ]
+            (fileItem.get('Name'), None, fileItem.get('URI'), long( fileItem.get('Size') ) ) ) )
+                          for fileItem in fileResultsFiltered ]
         # Iterate across the individual files entries
         for fileItem in item.fileList:
             # Substitute the Instance Name in for the Series Description in File Names
-            fileItem['FileName'] = re.sub(item.seriesDesc, item.instanceName, fileItem.get('OriginalName'))
-            print fileItem['FileName'], fileItem['URI']
+            fileItem['FileName'] = re.sub( item.seriesDesc, item.instanceName, fileItem.get('OriginalName') )
 
 # Make sure that the destination folder exists
 if not os.path.exists( destDir ):
@@ -252,6 +251,7 @@ for item in seriesList:
                 print "Matches remote"
             else:
                 print "Does not match remote!"
+                exit(1)
 
 # Pathing to find stuff in XNAT
 # For lists, can append: ?format=json
