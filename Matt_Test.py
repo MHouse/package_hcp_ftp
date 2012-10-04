@@ -67,6 +67,7 @@ args = parser.parse_args()
 
 restServerName = args.restServerName
 restSecurity = args.restSecurity
+# TODO Need to switch back to command line arguments
 username = importUsername
 #username = args.restUser
 password = importPassword
@@ -106,6 +107,8 @@ restSessionHeader = {"Cookie": "JSESSIONID=" + restSessionID}
 # Make a rest request to get the complete XNAT Session XML
 try:
     r = requests.get( restExperimentURL, params=xmlFormat, headers=restSessionHeader, timeout=10.0 )
+    # If we don't get an OK; code: requests.codes.ok
+    r.raise_for_status()
 # Check if the REST Request fails
 except (requests.Timeout) as e:
     print "Timed out while attempting to retrieve XML:"
@@ -212,7 +215,7 @@ else:
     exit(1)
 
 # Create the filtered list; Exclude specified scan types from the list
-excludeList = ["Localizer", "AAHScout"]
+excludeList = ["Localizer", "AAHScout", "_old$"]
 # Create a regular expression search object
 searchRegex = re.compile( '|'.join(excludeList) )
 
