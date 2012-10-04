@@ -53,7 +53,8 @@ jsonFormat ={'format': 'json'}
 restServerName = "intradb.humanconnectome.org"
 restInsecureRoot = "http://" + restServerName + ":8080"
 restSecureRoot = "https://" + restServerName
-restExperimentURL = restSecureRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
+restSelectedRoot = restSecureRoot
+restExperimentURL = restSelectedRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
 # Establish a Session ID
 r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
@@ -136,7 +137,7 @@ if len(seriesList) > 1:
 # Re-sort by Series Number
 seriesList.sort( key=attrgetter('seriesNum') )
 
-# Tag Single Special Cases
+# Tag Single Special Cases as not being unique
 specialCases = ["FieldMap_Magnitude", "FieldMap_Phase", "BOLD_RL_SB_SE", "BOLD_LR_SB_SE"]
 # Iterate over the list of Series objects
 for item in seriesList:
@@ -147,9 +148,13 @@ for item in seriesList:
 
 # Set the Instance Names
 for item in seriesList:
+    # For unique instances...
     if item.isUnique:
+        # Just use the Series Description
         item.instanceName = item.seriesDesc
+    # For non-unique instances...
     else:
+        # Append the Series Description with the Instance Number
         item.instanceName = item.seriesDesc + "_" + str(item.instanceNum)
 
 # Sanity Check. Verify that all Instance Names are unique
@@ -161,7 +166,7 @@ else:
     print "Instance names not unique."
     exit(1)
 
-# Create the filtered list; Remove specified scan types from list
+# Create the filtered list; Exclude specified scan types from the list
 excludeList = ["Localizer", "AAHScout"]
 # Create a regular expression search object
 searchRegex = re.compile( '|'.join(excludeList) )
@@ -199,13 +204,13 @@ for item in seriesList:
               ( item.seriesNum, len( fileResults ), len( fileResultsFiltered ) )
         # Create a stripped down version of the results with a new field for FileName; Store it in the Series object
         item.fileList = [ dict( zip( ('OriginalName', 'FileName', 'URI', 'Size'),
-            (result.get('Name'), None, result.get('URI'), result.get('Size')) ) )
+            (result.get('Name'), None, result.get('URI'), long( result.get('Size') ) ) ) )
                           for result in fileResultsFiltered ]
         # Iterate across the individual files entries
         for fileItem in item.fileList:
             # Substitute the Instance Name in for the Series Description in File Names
             fileItem['FileName'] = re.sub(item.seriesDesc, item.instanceName, fileItem.get('OriginalName'))
-            #print fileItem['FileName'], fileItem['URI']
+            print fileItem['FileName'], fileItem['URI']
 
 # Make sure that the destination folder exists
 if not os.path.exists( destDir ):
@@ -220,53 +225,33 @@ for item in seriesList:
     print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
     if item.instanceIncluded:
         for fileItem in item.fileList:
-            # Get the primary NIFTI file for the series.  Assumes filename based on Series Description
-            #niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files/" + \
-            #           experiment + "_" + item.seriesDesc + ".nii.gz"
-            niftiURL = fileItem.get('URI')
+            # Get the current NIFTI resource in the series.
+            niftiURL = restSelectedRoot + fileItem.get('URI')
             # Create a Request object associated with the URL
             niftiRequest = urllib2.Request( niftiURL )
             # Add the Session Header to the Request
             niftiRequest.add_header( "Cookie", restSessionHeader.get("Cookie") )
             # Generate a fully qualified local filename to dump the data into
             local_filename = destDir + os.sep + experiment + os.sep + fileItem.get('FileName')
-            print local_filename
+            print "Downloading %s..." % fileItem.get('FileName')
+            # Try to write the remote file to disk
             try:
                 # Open a socket to the URL and get a file-like object handle
                 remote_fo = urllib2.urlopen( niftiRequest )
                 # Write the URL contents out to a file and make sure it gets closed
                 with open( local_filename, 'wb') as local_fo:
                     shutil.copyfileobj( remote_fo, local_fo )
+            # If we fail to open the remote object, error out
             except urllib2.URLError, e:
                 print e.args
-
-
-
-#
-## List Comprehensions Rock!
-#includedList = [ str(item.seriesNum) for item in seriesList if item.instanceIncluded ]
-#includedStr = ','.join(includedList)
-##print includedStr
-#
-#seriesURL = restExperimentURL + "/scans/" + includedStr + "/resources/NIFTI/files"
-##print seriesURL
-#r = requests.get( seriesURL, params=jsonFormat, headers=restSessionHeader)
-#seriesJSON = json.loads( r.content )
-#fileResults = seriesJSON.get('ResultSet').get('Result')
-#print "%s files found" % len( fileResults )
-## List Comprehensions Rock!
-## http://docs.python.org/tutorial/datastructures.html
-#fileResultsFiltered = [ fileItem for fileItem in fileResults if fileItem.get('URI').endswith(".nii.gz")]
-#print "%s files found matching criteria" % len( fileResultsFiltered )
-#for item in fileResultsFiltered:
-#    #print item
-#    #print item.get('Name'), item.get('URI')
-#    #print re.sub('\.nii.gz$', '', item.get('Name'))
-#    print dict( zip( ('Name', 'URI', 'Size'), (item.get('Name'), item.get('URI'), item.get('Size')) ) )
-##for fileItem in fileResults:
-##    fileURI = fileItem.get('URI')
-##    if fileURI.endswith(".nii.gz"):
-##        print fileURI
+                exit(1)
+            #print "File Size: %s " %  os.path.getsize(local_filename)
+            local_filesize = os.path.getsize(local_filename)
+            print "Local File Size: %0.1f MB;" % (local_filesize/(1024*1024.0)),
+            if fileItem.get('Size') == local_filesize:
+                print "Matches remote"
+            else:
+                print "Does not match remote!"
 
 # Pathing to find stuff in XNAT
 # For lists, can append: ?format=json
