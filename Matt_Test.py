@@ -11,6 +11,12 @@ from datetime import datetime
 from lxml import etree
 from sys import exit
 from operator import attrgetter
+import argparse
+# TODO Will be switching to 'pickle' for config file
+# If you have an object x, and a file object f that's been opened for writing, the simplest way to pickle the object is:
+# pickle.dump(x, f)
+# To unpickle the object again, if f is a file object which has been opened for reading:
+# x = pickle.load(f)
 from Matt_PW import importUsername, importPassword
 
 # Declare the XNAT Namespace for use in XML parsing
@@ -34,43 +40,82 @@ class seriesDetails:
         return "<seriesDetails seriesNum:%s seriesQualityText:%s seriesQualityNumeric:%s seriesDesc:%s niftiCount:%s seriesDate:%s>" \
                % (self.seriesNum, self.seriesQualityText, self.seriesQualityNumeric, self.seriesDesc, self.niftiCount, self.seriesDate)
 
-def QualityTextToNumeric(QualityText):
-    """Convert 'quality' string to numeric score"""
-    qualityDict = dict(unusable=0, poor=1, fair=2, good=3, excellent=4, usable=5, undetermined=6)
-    QualityNumeric = qualityDict.get( QualityText, -1)
-    return int( QualityNumeric )
+xmlFormat =  {'format': 'xml'}
+jsonFormat = {'format': 'json'}
+qualityDict = dict(unusable=0, poor=1, fair=2, good=3, excellent=4, usable=5, undetermined=6)
 
-# TODO Declaring REST Request Parameters manually here for now
-project = "HCP_Phase2"
-subject = "792564"
-experiment = "792564_diff"
+#===============================================================================
+# PARSE INPUT
+#===============================================================================
+parser = argparse.ArgumentParser(description="Alpha program to pull NIFTI data from XNAT and package it for FTP distribution")
+
+parser.add_argument("-W", "--server", dest="restServerName", default="intradb.humanconnectome.org", type=str, help="specify which server to connect to")
+parser.add_argument("-i", "--insecure", dest="restSecurity", default=True, action="store_false", help="specify whether to use security")
+parser.add_argument("-u", "--username", dest="restUser", type=str, help="username must be specified")
+parser.add_argument("-p", "--password", dest="restPass", type=str, help="password must be specified")
+
+parser.add_argument("-P", "--project", dest="inputProject", default="HCP_Phase2", type=str, help="specify project")
+parser.add_argument("-S", "--subject", dest="inputSubject", default="792564", type=str, help="specify subject of interest")
+parser.add_argument("-E", "--experiment", dest="inputExperiment", default="strc", type=str, help="specify experiment type of interest")
+
+parser.add_argument("-D", "--destination_dir", dest="destDir", default='/tmp', type=str, help="specify the directory for output")
+parser.add_argument("-V", "--Verbose", dest="Verbose", default=False, action="store_true", help="show more verbose output")
+
+parser.add_argument('--version', action='version', version='%(prog)s: v0.7')
+
+args = parser.parse_args()
+
+restServerName = args.restServerName
+restSecurity = args.restSecurity
 username = importUsername
+#username = args.restUser
 password = importPassword
+#password = args.restPass
 
-destDir = os.path.normpath( "/Users/mhouse01/NIFTI_temp" )
+project = args.inputProject
+subject = args.inputSubject
+experiment = subject + "_" + args.inputExperiment
 
-jsonFormat ={'format': 'json'}
-restServerName = "intradb.humanconnectome.org"
+destDir = os.path.normpath( args.destDir )
+Verbose = args.Verbose
+
 restInsecureRoot = "http://" + restServerName + ":8080"
 restSecureRoot = "https://" + restServerName
-restSelectedRoot = restSecureRoot
+if restSecurity:
+    print "Using only secure connections"
+    restSelectedRoot = restSecureRoot
+else:
+    print "Security turned off for data connections"
+    restSelectedRoot = restInsecureRoot
 restExperimentURL = restSelectedRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
 # Establish a Session ID
-r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
+try:
+    r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
+    # If we don't get an OK; code: requests.codes.ok
+    r.raise_for_status()
 # Check if the REST Request fails
-if r.status_code != 200 :
-    print "Failed to retrieve REST Session ID"
+except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+    print "Failed to retrieve REST Session ID: %s" % e
     exit(1)
+
 restSessionID = r.content
 print "Rest Session ID: %s " % (restSessionID)
 restSessionHeader = {"Cookie": "JSESSIONID=" + restSessionID}
 
 # Make a rest request to get the complete XNAT Session XML
-r = requests.get( restExperimentURL + "?format=xml", headers=restSessionHeader )
+try:
+    r = requests.get( restExperimentURL, params=xmlFormat, headers=restSessionHeader, timeout=10.0 )
 # Check if the REST Request fails
-if r.status_code != 200 :
-    print "Failed to retrieve XML"
+except (requests.Timeout) as e:
+    print "Timed out while attempting to retrieve XML:"
+    print "    " + str( e )
+    if not restSecurity:
+        print "Note that insecure connections are only allowed locally"
+    exit(1)
+# Check if the REST Request fails
+except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+    print "Failed to retrieve XML: %s" % e
     exit(1)
 
 # Parse the XML result into an Element Tree
@@ -92,8 +137,9 @@ for element in root.iterfind(".//" + xnatNS + "scan[@ID]"):
     currentSeries.seriesDesc = element.find(".//" + xnatNS + "series_description").text
     # Record the Scan Quality
     currentSeries.seriesQualityText = element.find(".//" + xnatNS + "quality").text
-    # Record the Convert the Scan Quality to a numeric value
-    currentSeries.seriesQualityNumeric = QualityTextToNumeric(currentSeries.seriesQualityText)
+    # Convert the Scan Quality to a numeric value and record it
+    #currentSeries.seriesQualityNumeric = QualityTextToNumeric(currentSeries.seriesQualityText)
+    currentSeries.seriesQualityNumeric = qualityDict.get( currentSeries.seriesQualityText, -1)
     # Find the file record under the current element associated with NIFTI files
     niftiElement = element.find(".//" + xnatNS + "file[@label='NIFTI']")
     # Record the number of NIFTI files from the file record
@@ -189,7 +235,14 @@ for item in seriesList:
         # Create a URL pointing to the NIFTI resources for the series
         niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files"
         # Get the list of NIFTI resources for the series in JSON format
-        r = requests.get( niftiURL, params=jsonFormat, headers=restSessionHeader)
+        try:
+            r = requests.get( niftiURL, params=jsonFormat, headers=restSessionHeader)
+            # If we don't get an OK; code: requests.codes.ok
+            r.raise_for_status()
+        # Check if the REST Request fails
+        except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+            print "Failed to retrieve REST Series NIFTI: %s" % e
+            exit(1)
         # Parse the JSON from the GET
         seriesJSON = json.loads( r.content )
         # Strip off the trash that comes back with it and store it as a list of name/value pairs
@@ -208,6 +261,7 @@ for item in seriesList:
         # Iterate across the individual files entries
         for fileItem in item.fileList:
             # Substitute the Instance Name in for the Series Description in File Names
+            # fileItem['FileName'] = fileItem.get('OriginalName').replace( item.seriesDesc, item.instanceName)
             fileItem['FileName'] = re.sub( item.seriesDesc, item.instanceName, fileItem.get('OriginalName') )
 
 # Make sure that the destination folder exists
