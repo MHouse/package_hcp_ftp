@@ -224,7 +224,7 @@ else:
     exit(1)
 
 # Create the filtered list; Exclude specified scan types from the list
-excludeList = ["Localizer", "AAHScout", "_old$", "^BIAS_", "^AFI", "^FieldMap_Magnitude"]
+excludeList = ["Localizer", "AAHScout", "_old$", "^BIAS_(BC|32CH)", "^AFI", "^FieldMap_(Magnitude|Phase)"]
 # Create a regular expression search object
 searchRegex = re.compile( '|'.join(excludeList) )
 
