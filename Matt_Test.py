@@ -51,6 +51,7 @@ parser = argparse.ArgumentParser(description="Alpha program to pull NIFTI data f
 
 parser.add_argument("-W", "--server", dest="restServerName", default="intradb.humanconnectome.org", type=str, help="specify which server to connect to")
 parser.add_argument("-i", "--insecure", dest="restSecurity", default=True, action="store_false", help="specify whether to use security")
+
 parser.add_argument("-u", "--username", dest="restUser", type=str, help="username must be specified")
 parser.add_argument("-p", "--password", dest="restPass", type=str, help="password must be specified")
 
@@ -59,7 +60,8 @@ parser.add_argument("-S", "--subject", dest="inputSubject", default="792564", ty
 parser.add_argument("-E", "--experiment", dest="inputExperiment", default="strc", type=str, help="specify experiment type of interest")
 
 parser.add_argument("-D", "--destination_dir", dest="destDir", default='/tmp', type=str, help="specify the directory for output")
-parser.add_argument("-V", "--Verbose", dest="Verbose", default=False, action="store_true", help="show more verbose output")
+parser.add_argument("-l", "--list", dest="listOnly", default=False, action="store_true", help="only list files that would be retrieved")
+parser.add_argument("-v", "--verbose", dest="verbose", default=False, action="store_true", help="show more verbose output")
 
 parser.add_argument('--version', action='version', version='%(prog)s: v0.7')
 
@@ -78,7 +80,8 @@ subject = args.inputSubject
 experiment = subject + "_" + args.inputExperiment
 
 destDir = os.path.normpath( args.destDir )
-Verbose = args.Verbose
+listOnly = args.listOnly
+Verbose = args.verbose
 
 restInsecureRoot = "http://" + restServerName + ":8080"
 restSecureRoot = "https://" + restServerName
@@ -90,14 +93,20 @@ else:
     restSelectedRoot = restInsecureRoot
 restExperimentURL = restSelectedRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
+# If we find an OS certificate bundle, use it instead of the built-in bundle
+if requests.utils.get_os_ca_bundle_path():
+    os.environ['REQUESTS_CA_BUNDLE'] = requests.utils.get_os_ca_bundle_path()
+print "Using CA Bundle: %s" % requests.utils.DEFAULT_CA_BUNDLE_PATH
+
 # Establish a Session ID
 try:
-    r = requests.get( restSecureRoot + "/data/JSESSION", auth=(username, password) )
+    r = requests.get( restSelectedRoot + "/data/JSESSION", auth=(username, password) )
     # If we don't get an OK; code: requests.codes.ok
     r.raise_for_status()
 # Check if the REST Request fails
 except (requests.ConnectionError, requests.exceptions.RequestException) as e:
-    print "Failed to retrieve REST Session ID: %s" % e
+    print "Failed to retrieve REST Session ID:"
+    print "    " + str( e )
     exit(1)
 
 restSessionID = r.content
@@ -275,6 +284,9 @@ sessionFolder = destDir + os.sep + experiment
 if not os.path.exists( sessionFolder ):
     os.makedirs( sessionFolder )
 
+if listOnly:
+    print "Files will not be downloaded"
+
 # Download the final filtered list
 for item in seriesList:
     print "Series %s, Instance Name: %s, Included: %s" % (item.seriesNum, item.instanceName, item.instanceIncluded )
@@ -282,6 +294,10 @@ for item in seriesList:
         for fileItem in item.fileList:
             # Get the current NIFTI resource in the series.
             niftiURL = restSelectedRoot + fileItem.get('URI')
+            # List files only
+            if listOnly:
+                print "Would have downloaded %s..." % fileItem.get('FileName')
+                continue
             # Create a Request object associated with the URL
             niftiRequest = urllib2.Request( niftiURL )
             # Add the Session Header to the Request
@@ -297,7 +313,7 @@ for item in seriesList:
                 with open( local_filename, 'wb') as local_fo:
                     shutil.copyfileobj( remote_fo, local_fo )
             # If we fail to open the remote object, error out
-            except urllib2.URLError, e:
+            except urllib2.URLError as e:
                 print e.args
                 exit(1)
             #print "File Size: %s " %  os.path.getsize(local_filename)
@@ -308,6 +324,7 @@ for item in seriesList:
             else:
                 print "Does not match remote!"
                 exit(1)
+
 
 # Pathing to find stuff in XNAT
 # For lists, can append: ?format=json
