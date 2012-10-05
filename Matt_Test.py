@@ -89,7 +89,7 @@ if restSecurity:
     print "Using only secure connections"
     restSelectedRoot = restSecureRoot
 else:
-    print "Security turned off for data connections"
+    print "Security turned off for all connections"
     restSelectedRoot = restInsecureRoot
 restExperimentURL = restSelectedRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
@@ -317,9 +317,10 @@ for item in seriesList:
             except urllib2.URLError as e:
                 print e.args
                 exit(1)
-            #print "File Size: %s " %  os.path.getsize(local_filename)
+            # Get and print the local file size in MB
             local_filesize = os.path.getsize(local_filename)
             print "Local File Size: %0.1f MB;" % (local_filesize/(1024*1024.0)),
+            # Check that the downloaded file size matches the remote item
             if fileItem.get('Size') == local_filesize:
                 print "Matches remote"
             else:
@@ -328,7 +329,7 @@ for item in seriesList:
 
 # Get a count of the number of files that should have been downloaded
 downloadCount = sum( [ len(item.fileList) for item in seriesList if item.instanceIncluded ] )
-print "Downloaded %s files" % downloadCount
+print "Should have downloaded %s files" % downloadCount
 
 # Pathing to find stuff in XNAT
 # For lists, can append: ?format=json
