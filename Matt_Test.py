@@ -284,6 +284,7 @@ sessionFolder = destDir + os.sep + experiment
 if not os.path.exists( sessionFolder ):
     os.makedirs( sessionFolder )
 
+# Inform the user that this will only list the files
 if listOnly:
     print "Files will not be downloaded"
 
@@ -325,6 +326,9 @@ for item in seriesList:
                 print "Does not match remote!"
                 exit(1)
 
+# Get a count of the number of files that should have been downloaded
+downloadCount = sum( [ len(item.fileList) for item in seriesList if item.instanceIncluded ] )
+print "Downloaded %s files" % downloadCount
 
 # Pathing to find stuff in XNAT
 # For lists, can append: ?format=json
