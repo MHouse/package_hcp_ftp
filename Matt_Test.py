@@ -94,9 +94,9 @@ else:
 restExperimentURL = restSelectedRoot + "/data/archive/projects/" + project + "/subjects/" + subject + "/experiments/" + experiment
 
 # If we find an OS certificate bundle, use it instead of the built-in bundle
-if requests.utils.get_os_ca_bundle_path():
+if requests.utils.get_os_ca_bundle_path() and restSecurity:
     os.environ['REQUESTS_CA_BUNDLE'] = requests.utils.get_os_ca_bundle_path()
-print "Using CA Bundle: %s" % requests.utils.DEFAULT_CA_BUNDLE_PATH
+    print "Using CA Bundle: %s" % requests.utils.DEFAULT_CA_BUNDLE_PATH
 
 # Establish a Session ID
 try:
@@ -224,7 +224,7 @@ else:
     exit(1)
 
 # Create the filtered list; Exclude specified scan types from the list
-excludeList = ["Localizer", "AAHScout", "_old$"]
+excludeList = ["Localizer", "AAHScout", "_old$", "^BIAS_", "^AFI", "^FieldMap_Magnitude"]
 # Create a regular expression search object
 searchRegex = re.compile( '|'.join(excludeList) )
 
