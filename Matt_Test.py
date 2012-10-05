@@ -63,7 +63,7 @@ parser.add_argument("-D", "--destination_dir", dest="destDir", default='/tmp', t
 parser.add_argument("-l", "--list", dest="listOnly", default=False, action="store_true", help="only list files that would be retrieved")
 parser.add_argument("-v", "--verbose", dest="verbose", default=False, action="store_true", help="show more verbose output")
 
-parser.add_argument('--version', action='version', version='%(prog)s: v0.7')
+parser.add_argument('--version', action='version', version='%(prog)s: v0.8')
 
 args = parser.parse_args()
 
@@ -276,13 +276,15 @@ for item in seriesList:
             # fileItem['FileName'] = fileItem.get('OriginalName').replace( item.seriesDesc, item.instanceName)
             fileItem['FileName'] = re.sub( item.seriesDesc, item.instanceName, fileItem.get('OriginalName') )
 
-# Make sure that the destination folder exists
-if not os.path.exists( destDir ):
-    os.makedirs(destDir)
-# Make a session specific folder
-sessionFolder = destDir + os.sep + experiment
-if not os.path.exists( sessionFolder ):
-    os.makedirs( sessionFolder )
+# If we're not just listing the files
+if not listOnly:
+    # Make sure that the destination folder exists
+    if not os.path.exists( destDir ):
+        os.makedirs(destDir)
+    # Make a session specific folder
+    sessionFolder = destDir + os.sep + experiment
+    if not os.path.exists( sessionFolder ):
+        os.makedirs( sessionFolder )
 
 # Inform the user that this will only list the files
 if listOnly:
