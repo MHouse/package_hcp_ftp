@@ -240,6 +240,8 @@ for item in seriesList:
 # Re-sort by Series Number
 seriesList.sort( key=attrgetter('seriesNum') )
 
+# Create instance names by re-numbering duplicates
+specialCases = ["T1w_MPR", "T2w_SPC"]
 # Set the Instance Names
 for item in seriesList:
     # For unique instances...
@@ -247,8 +249,11 @@ for item in seriesList:
         # Just use the Series Description
         item.instanceName = item.seriesDesc
     # For non-unique instances...
-    else:
+    elif item.seriesDesc in specialCases:
         # Append the Series Description with the Instance Number
+        item.instanceName = item.seriesDesc + str(item.instanceNum)
+    else:
+        # Append the Series Description with an underscore and the Instance Number
         item.instanceName = item.seriesDesc + "_" + str(item.instanceNum)
 
 # Sanity Check. Verify that all Instance Names are unique
