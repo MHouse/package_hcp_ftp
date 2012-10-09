@@ -12,7 +12,8 @@ from lxml import etree
 from sys import exit
 from operator import attrgetter
 import argparse
-# TODO Will be switching to 'pickle' for config file
+import ConfigParser
+# TODO Will be switching to 'ConfigParser' for config file
 # If you have an object x, and a file object f that's been opened for writing, the simplest way to pickle the object is:
 # pickle.dump(x, f)
 # To unpickle the object again, if f is a file object which has been opened for reading:
