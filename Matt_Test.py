@@ -28,6 +28,7 @@ class seriesDetails:
         self.seriesNum = None
         self.seriesQualityText = None
         self.seriesQualityNumeric = None
+        self.seriesDescOrig = None
         self.seriesDesc = None
         self.niftiCount = None
         self.seriesDate = None
@@ -147,6 +148,8 @@ for element in root.iterfind(".//" + xnatNS + "scan[@ID]"):
     currentSeries.seriesNum = int( element.get("ID") )
     # Record the Series Description
     currentSeries.seriesDesc = element.find(".//" + xnatNS + "series_description").text
+    # Also dump it into an 'original' field that will not be changed
+    currentSeries.seriesDescOrig = currentSeries.seriesDesc
     # Record the Scan Quality
     currentSeries.seriesQualityText = element.find(".//" + xnatNS + "quality").text
     # Convert the Scan Quality to a numeric value and record it
@@ -162,6 +165,36 @@ for element in root.iterfind(".//" + xnatNS + "scan[@ID]"):
     currentSeries.seriesDate = datetime.strptime(studyDate + " " + startTime, "%Y-%m-%d %H:%M:%S")
     # Add the current series to the end of the list
     seriesList.append(currentSeries)
+
+# De-Number Certain Scan Types
+specialCases = ["^T1w_MPR\d+$", "^T2w_SPC\d+$"]
+# Create a regular expression search object
+searchRegex = re.compile( '|'.join(specialCases) )
+# Iterate over the list of Series objects
+for item in seriesList:
+    # If the Series Name matches any of the special cases
+    reMatch = re.search( searchRegex, item.seriesDesc )
+    if reMatch:
+        # Strip the trailing digit from the series description
+        item.seriesDesc = re.sub( '\d+$', '', reMatch.group() )
+
+# Create the filtered list; Exclude specified scan types from the list
+excludeList = ["Localizer", "AAHScout", "_old$", "^BIAS_(BC|32CH)", "^AFI", "^FieldMap_(Magnitude|Phase)"]
+# Create a regular expression search object
+searchRegex = re.compile( '|'.join(excludeList) )
+
+# Iterate over the list of Series objects
+for item in seriesList:
+    # if the scan quality is a 3 or greater and if the Instance Name does not match anything from the exclude list
+    if item.seriesQualityNumeric >= 3 and not re.search( searchRegex, item.seriesDesc ):
+        # Include the item in the final list
+        item.instanceIncluded = True
+    else:
+        # Exclude this item from the final list
+        item.instanceIncluded = False
+
+# Filter the list by the instance inclusion flag
+seriesList = [item for item in seriesList if item.instanceIncluded]
 
 # Sort by primary then secondary key (utilizes sorting stability)
 seriesList.sort( key=attrgetter('seriesDesc', 'seriesDate') )
@@ -191,17 +224,17 @@ if len(seriesList) > 1:
             # Increment the current instance number
             currentSeries.instanceNum = previousSeries.instanceNum + 1
 
-# Re-sort by Series Number
-seriesList.sort( key=attrgetter('seriesNum') )
-
 # Tag Single Special Cases as not being unique
-specialCases = ["FieldMap_Magnitude", "FieldMap_Phase", "BOLD_RL_SB_SE", "BOLD_LR_SB_SE"]
+specialCases = ["FieldMap_Magnitude", "FieldMap_Phase", "BOLD_RL_SB_SE", "BOLD_LR_SB_SE", "T1w_MPR", "T2w_SPC"]
 # Iterate over the list of Series objects
 for item in seriesList:
     # If the current Series Description matches one of our special cases
     if item.seriesDesc in specialCases:
         # Tag it as not unique
         item.isUnique = False
+
+# Re-sort by Series Number
+seriesList.sort( key=attrgetter('seriesNum') )
 
 # Set the Instance Names
 for item in seriesList:
@@ -223,58 +256,41 @@ else:
     print "Instance names not unique."
     exit(1)
 
-# Create the filtered list; Exclude specified scan types from the list
-excludeList = ["Localizer", "AAHScout", "_old$", "^BIAS_(BC|32CH)", "^AFI", "^FieldMap_(Magnitude|Phase)"]
-# Create a regular expression search object
-searchRegex = re.compile( '|'.join(excludeList) )
-
-# Iterate over the list of Series objects
-for item in seriesList:
-    # if the scan quality is a 3 or greater and if the Instance Name does not match anything from the exclude list
-    if item.seriesQualityNumeric >= 3 and not re.search( searchRegex, item.instanceName ):
-        # Include the item in the final list
-        item.instanceIncluded = True
-    else:
-        # Exclude this item from the final list
-        item.instanceIncluded = False
-
 # Create a tuple of the included resource types
 IncludedTypes = ('.nii.gz', '.bvec', '.bval')
 # Get the actual list of file names and URLs for each series
 for item in seriesList:
-    # If the Series is included, get it's file list
-    if item.instanceIncluded:
-        # Create a URL pointing to the NIFTI resources for the series
-        niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files"
-        # Get the list of NIFTI resources for the series in JSON format
-        try:
-            r = requests.get( niftiURL, params=jsonFormat, headers=restSessionHeader)
-            # If we don't get an OK; code: requests.codes.ok
-            r.raise_for_status()
-        # Check if the REST Request fails
-        except (requests.ConnectionError, requests.exceptions.RequestException) as e:
-            print "Failed to retrieve REST Series NIFTI: %s" % e
-            exit(1)
-        # Parse the JSON from the GET
-        seriesJSON = json.loads( r.content )
-        # Strip off the trash that comes back with it and store it as a list of name/value pairs
-        fileResults = seriesJSON.get('ResultSet').get('Result')
-        # List Comprehensions Rock!  http://docs.python.org/tutorial/datastructures.html
-        # Filter the File List to only include items where the URI ends with one of the defined file types
-        fileResultsFiltered = [ fileItem for fileItem in fileResults
-                                if fileItem.get('URI').endswith( IncludedTypes )]
-        # Let us know what was found and how many matched
-        print "Series %s, %s file(s) found; %s file(s) matching criteria" %\
-              ( item.seriesNum, len( fileResults ), len( fileResultsFiltered ) )
-        # Create a stripped down version of the results with a new field for FileName; Store it in the Series object
-        item.fileList = [ dict( zip( ('OriginalName', 'FileName', 'URI', 'Size'),
-            (fileItem.get('Name'), None, fileItem.get('URI'), long( fileItem.get('Size') ) ) ) )
-                          for fileItem in fileResultsFiltered ]
-        # Iterate across the individual files entries
-        for fileItem in item.fileList:
-            # Substitute the Instance Name in for the Series Description in File Names
-            # fileItem['FileName'] = fileItem.get('OriginalName').replace( item.seriesDesc, item.instanceName)
-            fileItem['FileName'] = re.sub( item.seriesDesc, item.instanceName, fileItem.get('OriginalName') )
+    # Create a URL pointing to the NIFTI resources for the series
+    niftiURL = restExperimentURL + "/scans/" + str( item.seriesNum) + "/resources/NIFTI/files"
+    # Get the list of NIFTI resources for the series in JSON format
+    try:
+        r = requests.get( niftiURL, params=jsonFormat, headers=restSessionHeader)
+        # If we don't get an OK; code: requests.codes.ok
+        r.raise_for_status()
+    # Check if the REST Request fails
+    except (requests.ConnectionError, requests.exceptions.RequestException) as e:
+        print "Failed to retrieve REST Series NIFTI: %s" % e
+        exit(1)
+    # Parse the JSON from the GET
+    seriesJSON = json.loads( r.content )
+    # Strip off the trash that comes back with it and store it as a list of name/value pairs
+    fileResults = seriesJSON.get('ResultSet').get('Result')
+    # List Comprehensions Rock!  http://docs.python.org/tutorial/datastructures.html
+    # Filter the File List to only include items where the URI ends with one of the defined file types
+    fileResultsFiltered = [ fileItem for fileItem in fileResults
+                            if fileItem.get('URI').endswith( IncludedTypes )]
+    # Let us know what was found and how many matched
+    print "Series %s, %s file(s) found; %s file(s) matching criteria" %\
+          ( item.seriesNum, len( fileResults ), len( fileResultsFiltered ) )
+    # Create a stripped down version of the results with a new field for FileName; Store it in the Series object
+    item.fileList = [ dict( zip( ('OriginalName', 'FileName', 'URI', 'Size'),
+        (fileItem.get('Name'), None, fileItem.get('URI'), long( fileItem.get('Size') ) ) ) )
+                      for fileItem in fileResultsFiltered ]
+    # Iterate across the individual files entries
+    for fileItem in item.fileList:
+        # Substitute the Instance Name in for the Series Description in File Names
+        # fileItem['FileName'] = fileItem.get('OriginalName').replace( item.seriesDescOrig, item.instanceName)
+        fileItem['FileName'] = re.sub( item.seriesDescOrig, item.instanceName, fileItem.get('OriginalName') )
 
 # If we're not just listing the files
 if not listOnly:
