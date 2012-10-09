@@ -54,6 +54,7 @@ parser = argparse.ArgumentParser(description="Alpha program to pull NIFTI data f
 parser.add_argument("-W", "--server", dest="restServerName", default="intradb.humanconnectome.org", type=str, help="specify which server to connect to")
 parser.add_argument("-i", "--insecure", dest="restSecurity", default=True, action="store_false", help="specify whether to use security")
 
+parser.add_argument("-c", "--config", dest="configFile", default="package_hcp_ftp.cfg", type=str, help="config file must be specified")
 parser.add_argument("-u", "--username", dest="restUser", type=str, help="username must be specified")
 parser.add_argument("-p", "--password", dest="restPass", type=str, help="password must be specified")
 
@@ -72,6 +73,8 @@ args = parser.parse_args()
 restServerName = args.restServerName
 restSecurity = args.restSecurity
 # TODO Need to switch back to command line arguments
+configFile = args.configFile
+
 username = importUsername
 #username = args.restUser
 password = importPassword
